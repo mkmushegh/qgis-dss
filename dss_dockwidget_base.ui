@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>601</width>
-    <height>301</height>
+    <width>624</width>
+    <height>417</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -22,42 +22,52 @@
         <item row="0" column="0">
          <widget class="QLabel" name="label">
           <property name="text">
-           <string>Watersheds Layer</string>
+           <string>Water Bodies Layer</string>
           </property>
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="QgsMapLayerComboBox" name="mMapLayerComboBox"/>
+         <widget class="QgsMapLayerComboBox" name="cmbWaterBodies"/>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="label_2">
+         <widget class="QLabel" name="lblWaterAbstraction">
           <property name="text">
            <string>Water Abstraction</string>
           </property>
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QgsMapLayerComboBox" name="mMapLayerComboBox_2"/>
+         <widget class="QgsMapLayerComboBox" name="cmbWaterAbstraction"/>
         </item>
         <item row="2" column="0">
-         <widget class="QLabel" name="label_3">
+         <widget class="QLabel" name="lblWaterDischarge">
           <property name="text">
            <string>Water Discharge</string>
           </property>
          </widget>
         </item>
         <item row="2" column="1">
-         <widget class="QgsMapLayerComboBox" name="mMapLayerComboBox_3"/>
+         <widget class="QgsMapLayerComboBox" name="cmbWaterDischarge"/>
         </item>
         <item row="3" column="0">
-         <widget class="QLabel" name="label_4">
+         <widget class="QLabel" name="lblGroundwater">
           <property name="text">
-           <string>Ecological Flow</string>
+           <string>Groundwater Bodies Layer</string>
           </property>
          </widget>
         </item>
         <item row="3" column="1">
-         <widget class="QgsMapLayerComboBox" name="mMapLayerComboBox_4"/>
+         <widget class="QgsMapLayerComboBox" name="cmbGroundwater"/>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="lblCatchments">
+          <property name="text">
+           <string>ERICA catchments</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QgsMapLayerComboBox" name="cmbCatchments"/>
         </item>
        </layout>
       </item>
@@ -71,12 +81,12 @@
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="QgsDoubleSpinBox" name="mQgsDoubleSpinBox_2">
+         <widget class="QgsDoubleSpinBox" name="spinBoxLat">
           <property name="maximum">
            <double>100000000.000000000000000</double>
           </property>
           <property name="value">
-           <double>471739.000000000000000</double>
+           <double>604752.000000000000000</double>
           </property>
          </widget>
         </item>
@@ -88,16 +98,29 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QgsDoubleSpinBox" name="mQgsDoubleSpinBox_3">
+         <widget class="QgsDoubleSpinBox" name="spinBoxLon">
           <property name="maximum">
            <double>1000000000.000000000000000</double>
           </property>
           <property name="value">
-           <double>4485115.000000000000000</double>
+           <double>4319743.000000000000000</double>
           </property>
          </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <spacer name="verticalSpacer">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
       </item>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout">
@@ -141,10 +164,10 @@
   </customwidget>
  </customwidgets>
  <tabstops>
-  <tabstop>mMapLayerComboBox</tabstop>
-  <tabstop>mMapLayerComboBox_2</tabstop>
-  <tabstop>mMapLayerComboBox_3</tabstop>
-  <tabstop>mMapLayerComboBox_4</tabstop>
+  <tabstop>cmbWaterBodies</tabstop>
+  <tabstop>cmbWaterAbstraction</tabstop>
+  <tabstop>cmbWaterDischarge</tabstop>
+  <tabstop>cmbGroundwater</tabstop>
   <tabstop>btnCalculate</tabstop>
  </tabstops>
  <resources/>

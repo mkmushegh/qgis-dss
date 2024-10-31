@@ -1,1 +1,64 @@
 plugin_directory
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+
+# Ignore bytecode compiled by QGIS Plugin Loader
+*.qpyc
+*.qpy
+
+# Ignore Qt resource files compiled with pyrcc5
+resources_rc.py
+
+# Ignore compiled translation files
+*.qm
+
+# Ignore QGIS Plugin specific files
+*.qgs~
+*.qgz~
+*.qgd
+*.qgsr
+*.qgsa
+
+# Ignore virtual environment folder
+venv/
+env/
+ENV/
+
+# Ignore build files
+build/
+dist/
+
+# Ignore QGIS project backup files
+*.bak
+*.backup
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore log files
+*.log
+
+# Ignore .env file for secrets (if any)
+.env
+
+# Ignore user-specific IDE files
+.idea/
+.vscode/
+*.code-workspace
+
+# Ignore test result files
+htmlcov/
+coverage.xml
+*.coverage
+.tox/
+.pytest_cache/
+junit.xml
+
+# Ignore documentation build files
+docs/_build/
