@@ -23,8 +23,10 @@
 """
 
 import os
-from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal, QVariant
+import sys
+import traceback
+from qgis.PyQt import QtWidgets, uic, QtGui
+from qgis.PyQt.QtCore import pyqtSignal, QVariant, Qt
 from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.core import (
     QgsPointXY,
@@ -33,24 +35,71 @@ from qgis.core import (
     QgsCoordinateTransform,
     QgsProject,
     QgsGeometry,
+    QgsFeature,
+    QgsVectorLayer,
     QgsWkbTypes,
+    Qgis,
+    QgsMessageLog,
+    QgsField,
+    QgsGraduatedSymbolRenderer, 
+    QgsRendererRange, 
+    QgsSymbol,
+    QgsFillSymbol,
+    QgsLinePatternFillSymbolLayer,
+    QgsLineSymbol,
+    QgsSimpleLineSymbolLayer,
+    QgsUnitTypes
 )
-from qgis.utils import iface
-from qgis.gui import QgsRubberBand
+from qgis.gui import QgsMapToolEmitPoint
 from PyQt5.QtGui import QColor
 
-FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'dss_dockwidget_base.ui'))
+FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'dss_dockwidget_base.ui'))
+
+MESSAGE_CATEGORY = 'Messages'
+
+def enable_remote_debugging():
+    try:
+        import ptvsd
+        QgsMessageLog.logMessage("ptvsd imported successfully!", MESSAGE_CATEGORY, Qgis.Info)
+        if ptvsd.is_attached():
+            QgsMessageLog.logMessage("Remote Debug for Visual Studio is already active", MESSAGE_CATEGORY, Qgis.Info)
+            return
+        ptvsd.enable_attach(address=('localhost', 5678))
+        QgsMessageLog.logMessage("Attached remote Debug for Visual Studio", MESSAGE_CATEGORY, Qgis.Info)
+    except Exception as e:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        format_exception = traceback.format_exception(exc_type, exc_value, exc_traceback)
+        QgsMessageLog.logMessage(str(e), MESSAGE_CATEGORY, Qgis.Critical)        
+        QgsMessageLog.logMessage(repr(format_exception[0]), MESSAGE_CATEGORY, Qgis.Critical)
+        QgsMessageLog.logMessage(repr(format_exception[1]), MESSAGE_CATEGORY, Qgis.Critical)
+        QgsMessageLog.logMessage(repr(format_exception[2]), MESSAGE_CATEGORY, Qgis.Critical)
+
 
 class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     closingPlugin = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, iface, parent=None):
         """Constructor."""
+        enable_remote_debugging()
         super().__init__(parent)
         self.setupUi(self)
-        self.rubber_band = None
+        self.iface = iface
         self.btnCalculate.clicked.connect(self.calculate_closest_waterbody)
+        self.nearest_water_body_feature = None  # Initialize the variable
+        self.btnPickPoint.clicked.connect(self.pick_point_from_canvas)
+        
+    def pick_point_from_canvas(self):
+        """Activates the map tool to pick a point from the canvas."""
+        self.canvas = self.iface.mapCanvas()
+        self.tool = QgsMapToolEmitPoint(self.canvas)
+        self.tool.canvasClicked.connect(self.handle_canvas_click)
+        self.canvas.setMapTool(self.tool)
+
+    def handle_canvas_click(self, point, button):
+        """Handles the point picked from the canvas."""
+        self.spinBoxLat.setValue(point.x())
+        self.spinBoxLon.setValue(point.y())
+        self.canvas.unsetMapTool(self.tool)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
@@ -66,34 +115,36 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not self._validate_layer(water_bodies_layer, "water bodies"):
             return
 
-        nearest_feature = self._get_nearest_feature(water_bodies_layer, point)
-        if not nearest_feature:
+        nearest_water_body_feature = self._get_nearest_feature(water_bodies_layer, point)
+        if not nearest_water_body_feature:
             QMessageBox.warning(self, "Error", "No water bodies found near the point.")
             return
 
-        water_body_geom = nearest_feature.geometry()
+        self.nearest_water_body_feature = nearest_water_body_feature  # Store for later use
+
+        water_body_geom = nearest_water_body_feature.geometry()
         catchments_layer = self.cmbCatchments.currentLayer()
         if not self._validate_layer(catchments_layer, "catchments"):
             return
 
+        # Ensure geometries are in the same CRS
         if catchments_layer.crs() != water_bodies_layer.crs():
             transformer = QgsCoordinateTransform(water_bodies_layer.crs(), catchments_layer.crs(), QgsProject.instance())
             water_body_geom.transform(transformer)
 
-        intersecting_catchment = self._find_intersecting_feature(catchments_layer, water_body_geom)
+        # intersecting_catchment = self._find_intersecting_feature(catchments_layer, water_body_geom)
+        intersecting_catchment = self._find_intersecting_feature(catchments_layer, water_body_geom, point)
         if not intersecting_catchment:
             QMessageBox.warning(self, "Error", "No catchments intersect with the water body.")
             return
 
-        catchment_id_field = 'RCode'
+        catchment_id_field = 'RCode'  # Replace with your actual field name
         catchment_id_value = intersecting_catchment[catchment_id_field]
         if not catchment_id_value:
             QMessageBox.warning(self, "Error", "Catchment feature has no RCode value.")
             return
 
-        selected_catchments = self.select_catchment_features_by_id(
-            catchments_layer, catchment_id_field, catchment_id_value
-        )
+        selected_catchments = self.select_catchment_features_by_id(catchments_layer, catchment_id_field, catchment_id_value)
         if not selected_catchments:
             QMessageBox.warning(self, "Error", "No matching catchment features found.")
             return
@@ -104,11 +155,118 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             QMessageBox.warning(self, "Error", "Union of geometries failed.")
             return
 
-        self.flash_geometry(union_geometry)
-        self.process_intersecting_features(union_geometry, catchments_layer.crs())
+        # Add the union geometry as a new layer
+        # self.add_geometry_as_layer(union_geometry, catchments_layer.crs())
 
-        if self.rubber_band:
-            self.rubber_band.reset()
+        # Process intersecting features, including water bodies
+        results = self.process_intersecting_features(union_geometry, catchments_layer.crs())
+        
+        # Add the union geometry as a new layer with WS attributes
+        self.add_geometry_as_layer_with_attributes(union_geometry, catchments_layer.crs(), results['ws_surface'], results['ws_groundwater'], results['ws_total'])
+
+        self.display_results(results)
+
+
+    def display_results(self, results):
+        # Append Water Stress metrics to the message
+        message = "Water Stress (WS) Metrics:\n"
+        message += f"  - WS Surface: ({results['surface_water_abstraction']:.2f} / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f})) * 100 = {results['ws_surface']:.2f} %\n"
+        message += f"  - WS Groundwater: ({results['groundwater_abstraction']:.2f} / {results['groundwater_usable']:.2f}) * 100 = {results['ws_groundwater']:.2f} %\n"
+        message += f"  - WS Total: (({results['surface_water_abstraction']:.2f} + {results['groundwater_abstraction']:.2f}) / "
+        message += f"({results['natural_flow']:.2f} - {results['ecological_flow']:.2f} + {results['groundwater_usable']:.2f})) * 100 = {results['ws_total']:.2f} %\n\n"
+
+        # Set a fixed width for the message box
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Calculation Results")
+        msg_box.setText(message)
+        msg_box.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        msg_box.setStyleSheet("QLabel{min-width: 600px;}")
+        msg_box.exec_()
+
+    def create_custom_symbol(self, color):
+        # Create the main fill symbol
+        symbol = QgsFillSymbol()
+
+        # 1. Line Pattern Fill Layer
+        line_pattern_layer = QgsLinePatternFillSymbolLayer()
+        line_pattern_layer.setAngle(45)
+        line_pattern_layer.setDistance(1)  # Distance between lines in mm
+        line_pattern_layer.setDistanceUnit(QgsUnitTypes.RenderMillimeters)
+        line_pattern_layer.setLineWidth(0.26)  # Line width in mm
+        line_pattern_layer.setLineWidthUnit(QgsUnitTypes.RenderMillimeters)
+
+        # Create a line symbol for the pattern
+        line_symbol = QgsLineSymbol()
+        line_symbol.setColor(QColor(color))
+        line_symbol.setWidth(0.3)  # Line width in mm
+        line_symbol.setWidthUnit(QgsUnitTypes.RenderMillimeters)
+
+        # Set the sub-symbol for the line pattern
+        line_pattern_layer.setSubSymbol(line_symbol)
+
+        # 2. Simple Line Layer (Outline)
+        outline_layer = QgsSimpleLineSymbolLayer()
+        outline_layer.setColor(QColor(color))
+        outline_layer.setWidth(0.66)  # Line width in mm
+        outline_layer.setWidthUnit(QgsUnitTypes.RenderMillimeters)
+
+        # Clear existing layers and add our custom layers
+        symbol.deleteSymbolLayer(0)  # Remove default layer
+        symbol.appendSymbolLayer(line_pattern_layer)
+        symbol.appendSymbolLayer(outline_layer)
+
+        return symbol
+
+    def add_geometry_as_layer_with_attributes(self, geometry, crs, ws_surface, ws_groundwater, ws_total):
+        """Adds the given geometry as a new layer to the map with WS attributes."""
+        layer = QgsVectorLayer("Polygon?crs={}".format(crs.authid()), "WS for the selected point", "memory")
+        pr = layer.dataProvider()
+        
+        # Add fields for WS attributes
+        pr.addAttributes([
+            QgsField("WS_Surface", QVariant.Double),
+            QgsField("WS_Groundwater", QVariant.Double),
+            QgsField("WS_Total", QVariant.Double)
+        ])
+        layer.updateFields()
+        
+        # Create a feature with the geometry and WS attributes
+        feature = QgsFeature()
+        feature.setGeometry(geometry)
+        feature.setAttributes([ws_surface, ws_groundwater, ws_total])
+        pr.addFeatures([feature])
+        layer.updateExtents()
+        
+        # Add the layer to the project
+        QgsProject.instance().addMapLayer(layer)
+        
+        # Apply a graduated renderer to color the layer based on WS_Total
+
+        # Define color ranges
+        ranges = [
+            (0, 25, 'green', 'Not Stressed'),
+            (25, 50, 'yellow', 'Low Stress'),
+            (50, 75, 'orange', 'Moderate Stress'),
+            (75, 100, 'red', 'Stressed'),
+            (100, float('inf'), 'darkred', 'Overstressed')
+        ]
+
+        # Create ranges for the renderer
+        renderer_ranges = []
+        for min_val, max_val, color_name, label in ranges:
+            # Create the custom symbol with the specified color
+            symbol = self.create_custom_symbol(color_name)
+            # Create the renderer range
+            range = QgsRendererRange(min_val, max_val, symbol, label)
+            renderer_ranges.append(range)
+
+        # Create and apply the renderer
+        renderer = QgsGraduatedSymbolRenderer('WS_Total', renderer_ranges)
+        renderer.setMode(QgsGraduatedSymbolRenderer.Custom)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+    
 
     def _validate_layer(self, layer, layer_name):
         if not layer:
@@ -127,15 +285,28 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return next(layer.getFeatures(request), None)
         return None
 
-    def _find_intersecting_feature(self, layer, geometry):
+    def _find_intersecting_feature(self, layer, geometry, point):
         index = QgsSpatialIndex(layer.getFeatures())
         candidate_ids = index.intersects(geometry.boundingBox())
+        max_intersection_length = 0
+        best_feature = None
+        min_distance = float('inf')
+
         for feature_id in candidate_ids:
             request = QgsFeatureRequest(feature_id)
             feature = next(layer.getFeatures(request))
-            if feature.geometry().intersects(geometry):
+            
+            if feature.geometry().contains(QgsGeometry.fromPointXY(point)):
                 return feature
-        return None
+            
+            intersection = feature.geometry().intersection(geometry)
+            distance = feature.geometry().distance(QgsGeometry.fromPointXY(point))
+            if intersection.length() > max_intersection_length or (intersection.length() == max_intersection_length and distance < min_distance):
+                max_intersection_length = intersection.length()
+                min_distance = distance
+                best_feature = feature
+
+        return best_feature
 
     def _unify_geometries(self, features):
         geometries = [feature.geometry() for feature in features]
@@ -168,44 +339,146 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 if id_value_subset[:-2] == value_given_str[:-2] and int(id_value_subset) >= value_given_num:
                     selected_features.append(feature)
         return selected_features
-
-    def flash_geometry(self, geometry):
-        if self.rubber_band:
-            self.rubber_band.reset()
-        else:
-            self.rubber_band = QgsRubberBand(iface.mapCanvas(), QgsWkbTypes.PolygonGeometry)
-        self.rubber_band.setToGeometry(geometry, None)
-        self.rubber_band.setColor(QColor(255, 0, 0, 100))
-        self.rubber_band.setWidth(3)
-
-    def process_intersecting_features(self, union_geometry, union_crs):
-        layers_info = [
-            {
-                'layer': self.cmbWaterAbstraction.currentLayer(),
-                'name': 'Water Abstraction',
-                'process_func': self.process_water_abstraction
-            },
-            {
-                'layer': self.cmbWaterDischarge.currentLayer(),
-                'name': 'Water Discharge',
-                'process_func': self.process_water_discharge
-            },
-            {
-                'layer': self.cmbGroundwater.currentLayer(),
-                'name': 'Groundwater',
-                'process_func': self.process_groundwater
-            }
-        ]
-        results = {}
-        for info in layers_info:
-            layer = info['layer']
-            if not self._validate_layer(layer, info['name']):
+      
+    def process_intersecting_features(self, union_geometry, union_crs):       
+        # ========================== process water abstraction
+        layer = self.cmbWaterAbstraction.currentLayer()
+        if not self._validate_layer(layer, 'Water Abstraction'):
+            return
+        transformed_geom = self._transform_geometry(union_geometry, union_crs, layer.crs())
+        features = self._get_intersecting_features(layer, transformed_geom)
+        
+        surface_water_abstraction = 0
+        groundwater_abstraction = 0
+        total_water_abstraction = 0
+        for feature in features:
+            value = feature['abs_m3_yr']
+            if value is None:
                 continue
+            try:
+                value = float(value)
+            except ValueError:
+                continue
+            
+            if not isinstance(feature['Groundwate'],str):
+                if feature['Groundwate'].isNull():
+                    # then it is surface water abstraction
+                    surface_water_abstraction += value
+                else:
+                    groundwater_abstraction += value
+            else:
+                groundwater_abstraction += value
 
-            transformed_geom = self._transform_geometry(union_geometry, union_crs, layer.crs())
-            intersecting_features = self._get_intersecting_features(layer, transformed_geom)
-            results[info['name']] = info['process_func'](intersecting_features)
-        self.display_results(results)
+        total_water_abstraction = surface_water_abstraction + groundwater_abstraction
+        
+        # ========================== process water discharge
+        layer = self.cmbWaterDischarge.currentLayer()
+        if not self._validate_layer(layer, 'Water Discharge'):
+            return
+        transformed_geom = self._transform_geometry(union_geometry, union_crs, layer.crs())
+        features = self._get_intersecting_features(layer, transformed_geom)
+        
+        surface_water_discharge = 0
+        groundwater_discharge = 0
+        total_water_discharge = 0
+        for feature in features:
+            surface_value = feature['Tm3_y']
+            groundwater_value = feature['Swg_m3_y']
+            
+            if surface_value is None:
+                continue
+            try:
+                surface_value = float(surface_value)
+            except ValueError:
+                continue
+            
+            surface_water_discharge += surface_value
+            
+            if groundwater_value is None:
+                continue
+            try:
+                groundwater_value = float(groundwater_value)
+            except ValueError:
+                continue
+            
+            groundwater_discharge += groundwater_value
+            
+        total_water_discharge = surface_water_discharge + groundwater_discharge
+        
+        # ========================== process groundwater
+        layer = self.cmbGroundwater.currentLayer()
+        if not self._validate_layer(layer, 'Groundwater Bodies'):
+            return
+        transformed_geom = self._transform_geometry(union_geometry, union_crs, layer.crs())
+        features = self._get_intersecting_features(layer, transformed_geom)
+        
+        groundwater_usable = 0
+        for feature in features:
+            value = feature['GW_Usable']
+            if value is None:
+                continue
+            try:
+                value = float(value)
+            except ValueError:
+                continue
+            
+            groundwater_usable += value
+            
+        # ========================== process water bodies
+        layer = self.cmbWaterBodies.currentLayer()
+        if not self._validate_layer(layer, 'Water Bodies'):
+            return
+        # Use the nearest water body feature
+        features = [self.nearest_water_body_feature]
+        # Transform the feature's geometry to match the union CRS
+        source_crs = layer.crs()
+        target_crs = union_crs
+        features = self._transform_features(features, source_crs, target_crs)
+        
+        """Processes only the nearest water body feature."""
+        natural_flow = 0.0
+        ecological_flow = 0.0
+        if not features:
+            return 
+        
+        feature = features[0]  # We only consider the nearest feature
+        try:
+            natural_flow = float(feature['W_av'])
+        except (ValueError, TypeError, KeyError):
+            natural_flow = 0.0
+
+        try:
+            ecological_flow = float(feature['W_ef'])
+        except (ValueError, TypeError, KeyError):
+            ecological_flow = 0.0
+
+        # ========================== Calculate Water Stress (WS) metrics
+        # Calculate Water Stress (WS) metrics
+        try:
+            ws_surface = ((surface_water_abstraction - surface_water_discharge) / (natural_flow - ecological_flow)) * 100
+        except ZeroDivisionError:
+            ws_surface = 0
+
+        try:
+            ws_groundwater = ((groundwater_abstraction - groundwater_discharge) / groundwater_usable) * 100
+        except ZeroDivisionError:
+            ws_groundwater = 0
+
+        try:
+            ws_total = ((total_water_abstraction - total_water_discharge) / (natural_flow - ecological_flow + groundwater_usable)) * 100
+        except ZeroDivisionError:
+            ws_total = 0
+
+        return {
+            'ws_surface': ws_surface,
+            'ws_groundwater': ws_groundwater,
+            'ws_total': ws_total,
+            'surface_water_abstraction': surface_water_abstraction,
+            'groundwater_abstraction': groundwater_abstraction,
+            'natural_flow': natural_flow,
+            'ecological_flow': ecological_flow,
+            'groundwater_usable': groundwater_usable
+        }
 
     def _transform_geometry(self, geometry, source_crs, target_crs):
         if source_crs != target_crs:
@@ -215,6 +488,20 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return transformed_geom
         return geometry
 
+    def _transform_features(self, features, source_crs, target_crs):
+        """Transforms the geometries of features from source CRS to target CRS."""
+        transformed_features = []
+        for feature in features:
+            geom = QgsGeometry(feature.geometry())
+            if source_crs != target_crs:
+                transformer = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+                geom.transform(transformer)
+            feature_copy = QgsFeature(feature)
+            feature_copy.setGeometry(geom)
+            transformed_features.append(feature_copy)
+        return transformed_features
+
+
     def _get_intersecting_features(self, layer, geometry):
         index = QgsSpatialIndex(layer.getFeatures())
         candidate_ids = index.intersects(geometry.boundingBox())
@@ -223,43 +510,3 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if feature.geometry().intersects(geometry)
         ]
         return intersecting_features
-
-    def process_water_abstraction(self, features):
-        purpose_sums = {}
-        total_sum = 0
-        for feature in features:
-            purpose = feature['Purpose']
-            value = feature['mln_m3_yr']
-            if value is None:
-                continue
-            try:
-                value = float(value)
-            except ValueError:
-                continue
-            total_sum += value
-            purpose_sums[purpose] = purpose_sums.get(purpose, 0) + value
-        return {'purpose_sums': purpose_sums, 'total_sum': total_sum}
-
-    def process_water_discharge(self, features):
-        total_sum = sum(float(feature['Tm3_y']) for feature in features if feature['Tm3_y'])
-        return {'total_sum': total_sum}
-
-    def process_groundwater(self, features):
-        total_sum = sum(float(feature['GW_Usabli_']) for feature in features if feature['GW_Usabli_'])
-        return {'total_sum': total_sum}
-
-    def display_results(self, results):
-        message = ""
-        if 'Water Abstraction' in results:
-            res = results['Water Abstraction']
-            message += "Water Abstraction:\n"
-            for purpose, sum_value in res['purpose_sums'].items():
-                message += f"  - Purpose '{purpose}': {sum_value} mln_m3_yr\n"
-            message += f"Total Water Abstraction: {res['total_sum']} mln_m3_yr\n\n"
-        if 'Water Discharge' in results:
-            res = results['Water Discharge']
-            message += f"Water Discharge Total: {res['total_sum']} Tm3_y\n\n"
-        if 'Groundwater' in results:
-            res = results['Groundwater']
-            message += f"Groundwater Usable Total: {res['total_sum']} GW_Usabli_\n"
-        QMessageBox.information(self, "Calculation Results", message)
