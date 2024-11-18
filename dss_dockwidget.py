@@ -244,11 +244,11 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Define color ranges
         ranges = [
-            (0, 25, 'green', 'Not Stressed'),
-            (25, 50, 'yellow', 'Low Stress'),
-            (50, 75, 'orange', 'Moderate Stress'),
-            (75, 100, 'red', 'Stressed'),
-            (100, float('inf'), 'darkred', 'Overstressed')
+            (0, 25, 'green', 'Not Stressed (0-25%)'),
+            (25, 50, 'yellow', 'Low Stress (25-50%)'),
+            (50, 75, 'orange', 'Moderate Stress (50-75%)'),
+            (75, 100, 'red', 'Stressed (75-100%)'),
+            (100, float('inf'), 'darkred', 'Overstressed (>100%)')
         ]
 
         # Create ranges for the renderer
