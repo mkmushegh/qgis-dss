@@ -170,17 +170,16 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def display_results(self, results):
         # Append Water Stress metrics to the message
         message = "Water Stress (WS) Metrics:\n"
-        message += f"  - WS Surface: ({results['surface_water_abstraction']:.2f} / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f})) * 100 = {results['ws_surface']:.2f} %\n"
-        message += f"  - WS Groundwater: ({results['groundwater_abstraction']:.2f} / {results['groundwater_usable']:.2f}) * 100 = {results['ws_groundwater']:.2f} %\n"
-        message += f"  - WS Total: (({results['surface_water_abstraction']:.2f} + {results['groundwater_abstraction']:.2f}) / "
-        message += f"({results['natural_flow']:.2f} - {results['ecological_flow']:.2f} + {results['groundwater_usable']:.2f})) * 100 = {results['ws_total']:.2f} %\n\n"
+        message += f"  - WS Surface: (({results['surface_water_abstraction']:.2f} - {results['surface_water_discharge']:.2f}) / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f})) * 100 = {results['ws_surface']:.2f} %\n"
+        message += f"  - WS Groundwater: (({results['groundwater_abstraction']:.2f} - {results['groundwater_discharge']:.2f}) / {results['groundwater_usable']:.2f}) * 100 = {results['ws_groundwater']:.2f} %\n"
+        message += f"  - WS Total: (({results['total_water_abstraction']:.2f} - {results['total_water_discharge']:.2f}) / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f} + {results['groundwater_usable']:.2f})) * 100 = {results['ws_total']:.2f} %\n\n"
 
         # Set a fixed width for the message box
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Calculation Results")
         msg_box.setText(message)
         msg_box.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        msg_box.setStyleSheet("QLabel{min-width: 600px;}")
+        msg_box.setStyleSheet("QLabel{min-width: 700px;}")
         msg_box.exec_()
 
     def create_custom_symbol(self, color):
@@ -244,7 +243,7 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Define color ranges
         ranges = [
-            (0, 25, 'green', 'Not Stressed (0-25%)'),
+            (float('-inf'), 25, 'green', 'Not Stressed (0-25%)'),
             (25, 50, 'yellow', 'Low Stress (25-50%)'),
             (50, 75, 'orange', 'Moderate Stress (50-75%)'),
             (75, 100, 'red', 'Stressed (75-100%)'),
@@ -352,6 +351,8 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         groundwater_abstraction = 0
         total_water_abstraction = 0
         for feature in features:
+            if feature['Purpose'] == 'շահագործում' or feature['purpose'] == 'կառուցում':
+                continue
             value = feature['abs_m3_yr']
             if value is None:
                 continue
@@ -474,7 +475,11 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             'ws_groundwater': ws_groundwater,
             'ws_total': ws_total,
             'surface_water_abstraction': surface_water_abstraction,
+            'surface_water_discharge': surface_water_discharge,
             'groundwater_abstraction': groundwater_abstraction,
+            'groundwater_discharge': groundwater_discharge,
+            'total_water_abstraction': total_water_abstraction,
+            'total_water_discharge': total_water_discharge,
             'natural_flow': natural_flow,
             'ecological_flow': ecological_flow,
             'groundwater_usable': groundwater_usable
