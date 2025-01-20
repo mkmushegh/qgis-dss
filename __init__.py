@@ -32,5 +32,8 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    from .dss import DSS
-    return DSS(iface)
+    # from .dss import DSS
+    # return DSS(iface)
+    
+    from .dss_menu import DSSMenuPlugin
+    return DSSMenuPlugin(iface)

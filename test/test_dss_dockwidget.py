@@ -16,7 +16,7 @@ import unittest
 
 from qgis.PyQt.QtGui import QDockWidget
 
-from dss_dockwidget import DSSDockWidget
+from dss_watershed_load_dockwidget import DSSDockWidget
 
 from utilities import get_qgis_app
 

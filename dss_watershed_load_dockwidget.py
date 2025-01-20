@@ -53,7 +53,7 @@ from qgis.core import (
 from qgis.gui import QgsMapToolEmitPoint
 from PyQt5.QtGui import QColor
 
-FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'dss_dockwidget_base.ui'))
+FORM_CLASS, _ = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'dss_watershed_load_dockwidget_base.ui'))
 
 MESSAGE_CATEGORY = 'Messages'
 
@@ -75,7 +75,7 @@ def enable_remote_debugging():
         QgsMessageLog.logMessage(repr(format_exception[2]), MESSAGE_CATEGORY, Qgis.Critical)
 
 
-class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
+class WatershedLoadDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     closingPlugin = pyqtSignal()
 
     def __init__(self, iface, parent=None):
@@ -115,7 +115,7 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not self._validate_layer(water_bodies_layer, "water bodies"):
             return
 
-        nearest_water_body_feature = self._get_nearest_feature(water_bodies_layer, point)
+        nearest_water_body_feature = self._get_nearest_feature_precise(water_bodies_layer, point)
         if not nearest_water_body_feature:
             QMessageBox.warning(self, "Error", "No water bodies found near the point.")
             return
@@ -170,9 +170,9 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def display_results(self, results):
         # Append Water Stress metrics to the message
         message = "Water Stress (WS) Metrics:\n"
-        message += f"  - WS Surface: (({results['surface_water_abstraction']:.2f} - {results['surface_water_discharge']:.2f}) / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f})) * 100 = {results['ws_surface']:.2f} %\n"
-        message += f"  - WS Groundwater: (({results['groundwater_abstraction']:.2f} - {results['groundwater_discharge']:.2f}) / {results['groundwater_usable']:.2f}) * 100 = {results['ws_groundwater']:.2f} %\n"
-        message += f"  - WS Total: (({results['total_water_abstraction']:.2f} - {results['total_water_discharge']:.2f}) / ({results['natural_flow']:.2f} - {results['ecological_flow']:.2f} + {results['groundwater_usable']:.2f})) * 100 = {results['ws_total']:.2f} %\n\n"
+        message += f"  - WS Surface: (({results['surface_water_abstraction']:.0f} - {results['surface_water_discharge']:.0f}) / ({results['natural_flow']:.0f} - {results['ecological_flow']:.0f})) * 100 = {results['ws_surface']:.0f} %\n"
+        message += f"  - WS Groundwater: (({results['groundwater_abstraction']:.0f} - {results['groundwater_discharge']:.0f}) / {results['groundwater_usable']:.0f}) * 100 = {results['ws_groundwater']:.0f} %\n"
+        message += f"  - WS Total: (({results['total_water_abstraction']:.0f} - {results['total_water_discharge']:.0f}) / ({results['natural_flow']:.0f} - {results['ecological_flow']:.0f} + {results['groundwater_usable']:.0f})) * 100 = {results['ws_total']:.0f} %\n\n"
 
         # Set a fixed width for the message box
         msg_box = QMessageBox(self)
@@ -276,13 +276,51 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return False
         return True
 
-    def _get_nearest_feature(self, layer, point):
+    # def _get_nearest_feature(self, layer, point):
+    #     index = QgsSpatialIndex(layer.getFeatures())
+    #     nearest_ids = index.nearestNeighbor(point, 1)
+    #     if nearest_ids:
+    #         request = QgsFeatureRequest(nearest_ids[0])
+    #         return next(layer.getFeatures(request), None)
+    #     return None
+
+    def _get_nearest_feature_precise(self, layer, point, k=5):
+        """
+        Finds the truly nearest feature in `layer` to the given `point`
+        by first retrieving up to `k` bounding-box neighbors, then doing
+        a real geometry distance check.
+
+        :param layer: QgsVectorLayer to search in.
+        :param point: QgsPointXY for the query.
+        :param k:     Number of bounding-box neighbors to retrieve.
+        :return:      The nearest QgsFeature by geometry distance, or None if none found.
+        """
+        # Build the spatial index if not done. For repeated calls, you might want to build it once.
         index = QgsSpatialIndex(layer.getFeatures())
-        nearest_ids = index.nearestNeighbor(point, 1)
-        if nearest_ids:
-            request = QgsFeatureRequest(nearest_ids[0])
-            return next(layer.getFeatures(request), None)
-        return None
+
+        # 1) Find the K nearest bounding boxes
+        candidate_ids = index.nearestNeighbor(point, k)
+        if not candidate_ids:
+            return None
+
+        point_geom = QgsGeometry.fromPointXY(point)
+
+        best_feat = None
+        best_dist = float('inf')
+
+        # 2) Among those K candidates, find the actual closest geometry
+        for fid in candidate_ids:
+            request = QgsFeatureRequest(fid)
+            candidate_feat = next(layer.getFeatures(request), None)
+            if not candidate_feat:
+                continue
+
+            dist = candidate_feat.geometry().distance(point_geom)
+            if dist < best_dist:
+                best_dist = dist
+                best_feat = candidate_feat
+
+        return best_feat
 
     def _find_intersecting_feature(self, layer, geometry, point):
         index = QgsSpatialIndex(layer.getFeatures())
@@ -317,7 +355,7 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         value_given_str = str(value_given)
         try:
             value_given_num = int(value_given_str)
-        except ValueError:
+        except:
             return selected_features
 
         for feature in layer.getFeatures():
@@ -327,7 +365,7 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             id_value_str = str(id_value)
             try:
                 id_value_num = int(id_value_str)
-            except ValueError:
+            except:
                 continue
 
             if len(id_value_str) == len(value_given_str):
@@ -351,14 +389,14 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         groundwater_abstraction = 0
         total_water_abstraction = 0
         for feature in features:
-            if feature['Purpose'] == 'շահագործում' or feature['purpose'] == 'կառուցում':
-                continue
+            # if feature['Purpose'].lower() == 'շահագործում' or feature['purpose'].lower() == 'կառուցում' or 'հէկ' in feature['Purpose'].lower():
+            #     continue
             value = feature['abs_m3_yr']
             if value is None:
                 continue
             try:
                 value = float(value)
-            except ValueError:
+            except:
                 continue
             
             if not isinstance(feature['Groundwate'],str):
@@ -386,11 +424,19 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             surface_value = feature['Tm3_y']
             groundwater_value = feature['Swg_m3_y']
             
+            if isinstance(surface_value, QVariant):
+                # this means it is a NULL value
+                surface_value = 0
+                
+            if isinstance(groundwater_value, QVariant):
+                # this means it is a NULL value
+                groundwater_value = 0
+            
             if surface_value is None:
                 continue
             try:
                 surface_value = float(surface_value)
-            except ValueError:
+            except:
                 continue
             
             surface_water_discharge += surface_value
@@ -399,7 +445,7 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 continue
             try:
                 groundwater_value = float(groundwater_value)
-            except ValueError:
+            except:
                 continue
             
             groundwater_discharge += groundwater_value
@@ -416,11 +462,16 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         groundwater_usable = 0
         for feature in features:
             value = feature['GW_Usable']
+            
+            if isinstance(value, QVariant):
+                # this means it is a NULL value
+                value = 0
+            
             if value is None:
                 continue
             try:
                 value = float(value)
-            except ValueError:
+            except:
                 continue
             
             groundwater_usable += value
@@ -445,12 +496,18 @@ class DSSDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         feature = features[0]  # We only consider the nearest feature
         try:
             natural_flow = float(feature['W_av'])
-        except (ValueError, TypeError, KeyError):
+            if isinstance(natural_flow, QVariant):
+                # this means it is a NULL value
+                natural_flow = 0
+        except:
             natural_flow = 0.0
 
         try:
             ecological_flow = float(feature['W_ef'])
-        except (ValueError, TypeError, KeyError):
+            if isinstance(ecological_flow, QVariant):
+                # this means it is a NULL value
+                ecological_flow = 0 
+        except:
             ecological_flow = 0.0
 
         # ========================== Calculate Water Stress (WS) metrics

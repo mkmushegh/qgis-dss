@@ -28,7 +28,7 @@ from qgis.PyQt.QtWidgets import QAction
 from .resources import *
 
 # Import the code for the DockWidget
-from .dss_dockwidget import DSSDockWidget
+from .dss_watershed_load_dockwidget import DSSDockWidget
 import os.path
 
 
